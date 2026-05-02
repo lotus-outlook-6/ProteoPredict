@@ -23,7 +23,46 @@ document.addEventListener('DOMContentLoaded', () => {
   initCustomDropdowns();
   initEventListeners();
   initChat();
+  initFavicon();
 });
+
+// ============================================
+// FAVICON & BRANDING
+// ============================================
+function initFavicon() {
+  const logo = new Image();
+  logo.src = 'logo.png';
+  logo.crossOrigin = "Anonymous";
+  logo.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    
+    // 1. Draw circular background
+    ctx.beginPath();
+    ctx.arc(32, 32, 32, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    
+    // 2. Clip for circular logo
+    ctx.beginPath();
+    ctx.arc(32, 32, 30, 0, Math.PI * 2);
+    ctx.clip();
+    
+    // 3. Draw image
+    ctx.drawImage(logo, 4, 4, 56, 56);
+    
+    // 4. Update favicon link
+    let link = document.querySelector("link[rel~='icon']");
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'icon';
+      document.head.appendChild(link);
+    }
+    link.href = canvas.toDataURL("image/png");
+  };
+}
 
 // ============================================
 // THEME TOGGLE

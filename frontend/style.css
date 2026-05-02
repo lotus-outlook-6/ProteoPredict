@@ -93,7 +93,15 @@ body {
   display: flex; align-items: center; gap: 0.6rem;
   font-weight: 500; font-size: 1.1rem; letter-spacing: -0.02em;
 }
-.brand i { color: var(--accent); }
+.brand-logo-circ {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: contain;
+  background: white; /* Adding white background in case it has transparent parts that look bad on dark */
+  border: 1px solid var(--border-subtle);
+  padding: 2px;
+}
 .brand .fw-bold { font-weight: 600; }
 
 .icon-btn {
