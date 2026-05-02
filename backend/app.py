@@ -4,6 +4,44 @@ import numpy as np
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import pickle
+import google.generativeai as genai
+
+# Setup Gemini API
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyCDzldZdiA9PxWFSVquvCTn4dn2Voie_OI")
+if GEMINI_API_KEY != "YOUR_API_KEY_HERE":
+    genai.configure(api_key=GEMINI_API_KEY)
+
+def search_rcsb_pdb(sequence: str) -> str:
+    """Searches the RCSB PDB database for a given protein sequence. Returns a clickable HTML link to the 3D viewer if found, or an error message. Only use this if the user asks to search for the structure or PDB."""
+    if len(sequence) < 20:
+        return "This sequence is too short to reliably search the PDB database."
+    import urllib.request
+    import json
+    rcsb_url = "https://search.rcsb.org/rcsbsearch/v2/query"
+    query_data = {
+        "query": {
+            "type": "terminal",
+            "service": "sequence",
+            "parameters": {
+                "evalue_cutoff": 0.1,
+                "identity_cutoff": 0.9,
+                "sequence_type": "protein",
+                "value": sequence
+            }
+        },
+        "return_type": "entry"
+    }
+    try:
+        req = urllib.request.Request(rcsb_url, data=json.dumps(query_data).encode('utf-8'), headers={'Content-Type': 'application/json'})
+        with urllib.request.urlopen(req, timeout=5) as res:
+            rcsb_res = json.loads(res.read().decode('utf-8'))
+            if 'result_set' in rcsb_res and len(rcsb_res['result_set']) > 0:
+                pdb_id = rcsb_res['result_set'][0]['identifier']
+                return f"PDB Match Found: {pdb_id}. To display it, return this exact HTML to the user: <br><br><a href='#' class='load-pdb-link' data-pdb='{pdb_id}' style='color: #578dd9; font-weight: 600; text-decoration: underline;'><i class='fas fa-cube'></i> Click here to load {pdb_id} in the 3D Viewer</a>"
+            else:
+                return "No close structural match found in the RCSB PDB database for this sequence."
+    except Exception as e:
+        return f"Failed to search PDB: {str(e)}"
 
 # ============================================
 # Configuration
@@ -189,6 +227,73 @@ def predict():
 
     except Exception as e:
         return jsonify({'error': f'Prediction error: {str(e)}'}), 500
+
+
+@app.route('/chat', methods=['POST'])
+def chat():
+    """Interactive chat assistant for protein analysis."""
+    data = request.json
+    if not data or 'message' not in data:
+        return jsonify({'error': 'No message provided'}), 400
+
+    msg = data.get('message', '')
+    msg_lower = msg.lower()
+    sequence = data.get('sequence', 'Unknown')
+    stats = data.get('stats', {})
+    use_gemini = data.get('use_gemini', True)
+
+    if not use_gemini:
+        # Local "Mock" AI Logic
+        response = ""
+        import re
+        if "solubility" in msg_lower:
+            val = stats.get('avg_solubility', 0)
+            if val > 0.6:
+                response = f"<strong>(Local Mode)</strong> This protein is highly soluble ({val:.2f}). This usually indicates it exists in the cytoplasm."
+            else:
+                response = f"<strong>(Local Mode)</strong> Solubility is quite low ({val:.2f}), suggesting a membrane-bound or hydrophobic protein."
+        elif "helix" in msg_lower or "structure" in msg_lower:
+            h = stats.get('helix_percent', 0)
+            s = stats.get('sheet_percent', 0)
+            response = f"<strong>(Local Mode)</strong> Structural profile: {h}% Helix, {s}% Sheet."
+        elif "pdb" in msg_lower or "search" in msg_lower:
+            response = search_rcsb_pdb(sequence)
+        else:
+            response = f"<strong>(Local Mode)</strong> I am running in offline mode. I can see this is a {stats.get('length')}aa sequence. Switch to 'Gemini' mode for deeper biochemical insights!"
+        return jsonify({'response': response})
+
+    if GEMINI_API_KEY == "YOUR_API_KEY_HERE":
+        return jsonify({'response': "<strong>Gemini API is not configured!</strong> Please enter your API key in `backend/app.py` on line 10."})
+
+    try:
+        system_instruction = f"You are ProteoPredict AI, an expert structural biology and bioinformatics assistant. Your ONLY purpose is to answer questions related to protein structures, amino acid sequences, solubility, disorder, mutations, and biochemistry. If the user asks about anything else, politely refuse. Be concise, professional, and use markdown formatting (like bolding) to make answers readable. Avoid lengthy paragraphs.\n\nContext for current protein:\nSequence: {sequence}\nLength: {stats.get('length')} aa\nMol Weight: {stats.get('mw')} Da\nHelix: {stats.get('helix_percent')}%\nSheet: {stats.get('sheet_percent')}%\nCoil: {stats.get('coil_percent')}%\nSolubility: {stats.get('avg_solubility')}\nDisorder: {stats.get('avg_disorder')}"
+        
+        model = genai.GenerativeModel(
+            model_name='gemini-2.5-flash',
+            tools=[search_rcsb_pdb],
+            system_instruction=system_instruction
+        )
+        
+        chat = model.start_chat(enable_automatic_function_calling=True)
+        response = chat.send_message(msg)
+        
+        # Replace markdown bolding with strong tags for the frontend if needed, though the frontend supports basic HTML.
+        # Actually we can just convert markdown to HTML simply or return markdown. The frontend displays HTML directly.
+        try:
+            res_text = response.text
+        except:
+            res_text = "I've processed your request. You can see the updated data in the analysis results above."
+
+        html_response = res_text.replace('\n', '<br>')
+        
+        # Simple markdown bold to HTML strong
+        import re
+        html_response = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', html_response)
+        
+        return jsonify({'response': html_response})
+
+    except Exception as e:
+        return jsonify({'error': f"Gemini API Error: {str(e)}"}), 500
 
 
 # ============================================

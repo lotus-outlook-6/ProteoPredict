@@ -123,7 +123,7 @@
                     <button class="tab-btn" data-tab="disorder">Disorder</button>
                     <button class="tab-btn" data-tab="composition">Composition</button>
                     <button class="tab-btn" data-tab="3d-viewer"><i class="fas fa-cube"></i> 3D Viewer</button>
-                    <button class="tab-btn ai-tab-btn" data-tab="ai-summary"><i class="fas fa-sparkles"></i> AI Summary</button>
+                    <button class="tab-btn ai-tab-btn" data-tab="ai-summary"><i class="fas fa-sparkles"></i> AI Summary <span class="beta-badge">BETA</span></button>
                 </div>
 
                 <!-- TAB PANE: STRUCTURE -->
@@ -189,8 +189,21 @@
                         <div class="ai-header">
                             <div class="ai-icon-wrapper"><i class="fas fa-robot"></i></div>
                             <div style="flex-grow: 1;">
-                                <h3>Plain English Translation</h3>
-                                <p style="color: var(--text-secondary); font-size: 0.85rem;">Automated interpretation of what these numbers actually mean.</p>
+                                <h3>AI Research Assistant <span class="beta-badge">BETA</span></h3>
+                                <p style="color: var(--text-secondary); font-size: 0.85rem;">Insights powered by Gemini 2.5 Flash.</p>
+                            </div>
+                            
+                            <!-- AI MODEL TOGGLE -->
+                            <div class="ai-mode-selector">
+                                <span class="mode-label">Mode:</span>
+                                <div class="mode-toggle">
+                                    <input type="checkbox" id="model-mode-toggle" checked>
+                                    <label for="model-mode-toggle">
+                                        <div class="toggle-option" data-mode="local">Local</div>
+                                        <div class="toggle-option" data-mode="gemini">Gemini</div>
+                                        <div class="toggle-knob"></div>
+                                    </label>
+                                </div>
                             </div>
                             
                             <!-- LANGUAGE DROPDOWN -->
@@ -202,8 +215,20 @@
                                 </div>
                             </div>
                         </div>
-                        <div id="ai-summary-content" class="ai-content">
-                            <!-- Filled dynamically by JavaScript -->
+                        <div class="ai-chat-container">
+                            <div id="chat-messages" class="chat-messages">
+                                <!-- Messages will appear here -->
+                                <div class="message message-bot">
+                                    Analyze a sequence to start the conversation!
+                                </div>
+                            </div>
+                            <div id="typing-indicator" class="typing-indicator" style="display: none;">
+                                <div class="dot-flashing"></div>
+                            </div>
+                            <div class="chat-input-area">
+                                <input type="text" id="chat-input" class="chat-input" placeholder="Ask about this structure..." disabled>
+                                <button id="chat-send-btn" class="chat-send-btn" disabled><i class="fas fa-paper-plane"></i></button>
+                            </div>
                         </div>
                     </div>
                 </div>

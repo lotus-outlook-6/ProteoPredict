@@ -22,6 +22,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initTabs();
   initCustomDropdowns();
   initEventListeners();
+  initChat();
 });
 
 // ============================================
@@ -184,9 +185,200 @@ function generateAISummary(stats) {
     paragraphs.push(`<strong>Drug Design & Manufacturing:</strong> This sequence is predicted to be mostly insoluble, containing a high fraction of "hydrophobic" (water-fearing) amino acids. In nature, this means the protein likely embeds itself inside the fatty cell membrane. In a lab setting, this makes it challenging to manufacture as a drug because it will tend to clump together in water-based solutions.`);
   }
 
-  const finalHtml = paragraphs.map(p => `<p class="ai-paragraph">${p}</p>`).join('');
-  const contentEl = document.getElementById('ai-summary-content');
-  if (contentEl) contentEl.innerHTML = finalHtml;
+  const finalHtml = paragraphs.map(p => `<p>${p}</p>`).join('');
+  
+  // Reset and populate chat
+  const chatMessages = document.getElementById('chat-messages');
+  chatMessages.innerHTML = ''; // Clear previous chat
+  addChatMessage('bot', finalHtml);
+  
+  // Add dynamic inline suggestions
+  addInlineSuggestions();
+  
+  // Enable chat inputs
+  document.getElementById('chat-input').disabled = false;
+  document.getElementById('chat-send-btn').disabled = false;
+}
+
+const SUGGESTIONS_POOL = [
+  "What specific mutations could I make to increase solubility?",
+  "Is this sequence related to any known human diseases?",
+  "Why does the disorder spike in certain regions?",
+  "Does this look like a membrane-bound protein?",
+  "Search the PDB database for a similar structure.",
+  "How would changing the pH affect this protein's stability?",
+  "What are the most likely binding sites on this protein?"
+];
+
+function addInlineSuggestions() {
+  const chatMessages = document.getElementById('chat-messages');
+  const suggestionsDiv = document.createElement('div');
+  suggestionsDiv.className = 'chat-suggestions-inline';
+  
+  // Pick 3 random suggestions
+  const shuffled = [...SUGGESTIONS_POOL].sort(() => 0.5 - Math.random());
+  const selected = shuffled.slice(0, 3);
+  
+  selected.forEach(text => {
+    const btn = document.createElement('button');
+    btn.className = 'chat-chip-inline';
+    btn.textContent = text;
+    btn.addEventListener('click', () => {
+      document.getElementById('chat-input').value = text;
+      suggestionsDiv.remove(); // Disappear after click
+      sendChatMessage();
+    });
+    suggestionsDiv.appendChild(btn);
+  });
+  
+  chatMessages.appendChild(suggestionsDiv);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function addChatMessage(sender, text) {
+  const chatMessages = document.getElementById('chat-messages');
+  const msgDiv = document.createElement('div');
+  msgDiv.className = `message message-${sender}`;
+  
+  if (sender === 'bot') {
+    msgDiv.classList.add('typing-text');
+    chatMessages.appendChild(msgDiv);
+    typeHTML(msgDiv, text);
+  } else {
+    msgDiv.innerHTML = text;
+    chatMessages.appendChild(msgDiv);
+  }
+  
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function typeHTML(element, html, speed = 10) {
+  let i = 0;
+  let isTag = false;
+  let text = "";
+  
+  function next() {
+    if (i < html.length) {
+      let char = html.charAt(i);
+      if (char === "<") isTag = true;
+      if (char === ">") isTag = false;
+      
+      text += char;
+      element.innerHTML = text;
+      i++;
+      
+      const chatMessages = document.getElementById('chat-messages');
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+      
+      if (isTag) {
+        next(); 
+      } else {
+        setTimeout(next, speed);
+      }
+    }
+  }
+  next();
+}
+
+async function sendChatMessage() {
+  const input = document.getElementById('chat-input');
+  const btn = document.getElementById('chat-send-btn');
+  const text = input.value.trim();
+  
+  if (!text || !currentResults) return;
+  
+  // Add user message
+  addChatMessage('user', text);
+  input.value = '';
+  
+  // Show typing indicator
+  const indicator = document.getElementById('typing-indicator');
+  indicator.style.display = 'flex';
+  btn.disabled = true;
+
+  const modeToggle = document.getElementById('model-mode-toggle');
+  const useGemini = modeToggle ? modeToggle.checked : true;
+
+  try {
+    const res = await fetch(`${API_URL}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: text,
+        sequence: currentResults.sequence,
+        stats: currentResults.stats,
+        use_gemini: useGemini
+      })
+    });
+    
+    const data = await res.json();
+    
+    // Add artificial delay for realism
+    setTimeout(() => {
+      indicator.style.display = 'none';
+      btn.disabled = false;
+      
+      if (res.ok) {
+        addChatMessage('bot', data.response);
+      } else {
+        addChatMessage('bot', `<span class="error-text">Error: ${data.error}</span>`);
+      }
+    }, 1500); // 1.5s delay
+  } catch (err) {
+    indicator.style.display = 'none';
+    btn.disabled = false;
+    addChatMessage('bot', `<span class="error-text">Failed to connect to AI assistant.</span>`);
+  }
+}
+
+// Intercept link clicks in chat to load PDB
+document.addEventListener('click', function(e) {
+  if (e.target && e.target.classList.contains('load-pdb-link')) {
+    e.preventDefault();
+    const pdbId = e.target.getAttribute('data-pdb');
+    document.querySelector('.tab-btn[data-tab="3d-viewer"]').click();
+    document.getElementById('custom-pdb-input').value = pdbId;
+    loadCustomPDB(pdbId);
+  }
+});
+
+function initChat() {
+  const input = document.getElementById('chat-input');
+  const btn = document.getElementById('chat-send-btn');
+  
+  btn.addEventListener('click', () => sendChatMessage());
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendChatMessage();
+  });
+
+  const modeToggle = document.getElementById('model-mode-toggle');
+  if (modeToggle) {
+    modeToggle.addEventListener('change', () => {
+      const chatMessages = document.getElementById('chat-messages');
+      const chatInput = document.getElementById('chat-input');
+      
+      // Visual feedback: blur and fade
+      chatMessages.style.filter = 'blur(4px)';
+      chatMessages.style.opacity = '0.5';
+      chatInput.disabled = true;
+
+      setTimeout(() => {
+        chatMessages.innerHTML = ''; // Clear history
+        
+        // Re-generate initial summary if we have results
+        if (currentResults && currentResults.stats) {
+          generateAISummary(currentResults.stats);
+        } else {
+          addChatMessage('bot', "AI mode switched. Please analyze a sequence to start chatting.");
+        }
+
+        // Restore UI
+        chatMessages.style.filter = 'none';
+        chatMessages.style.opacity = '1';
+        chatInput.disabled = false;
+      }, 400);
+    });
+  }
 }
 
 // ============================================
@@ -208,7 +400,7 @@ function initEventListeners() {
   copyBtn.addEventListener('click', copyResults);
 
   loadPdbBtn.addEventListener('click', () => {
-    const pdb = document.getElementById('custom-pdb-input').value.trim().toLowerCase();
+    let pdb = document.getElementById('custom-pdb-input').value.trim().toLowerCase();
     if (pdb.length === 4) {
       loadCustomPDB(pdb);
     } else {
@@ -287,6 +479,9 @@ async function runPrediction() {
 
     currentResults = data;
     displayAllResults(data);
+
+    // Step 1: Auto-PDB Search (Run in background)
+    searchRCSB(sequence);
   } catch (err) {
     console.error('Fetch Error:', err);
     showError(`Connection Error: Ensure backend is running at ${API_URL}`);
@@ -392,21 +587,77 @@ function render3DViewer() {
   const container = document.getElementById('mol-viewer');
   const statusEl = document.getElementById('viewer-status');
 
+  if (window.autoPdbId) {
+    statusEl.innerHTML = `<span class="badge-success"><i class="fas fa-check-circle"></i> PDB Found Automatically: ${window.autoPdbId.toUpperCase()}</span> (Based on 100% sequence match)`;
+    loadCustomPDB(window.autoPdbId.toLowerCase(), true);
+    return;
+  }
+
+  if (window.manualPdbId) {
+    loadCustomPDB(window.manualPdbId.toLowerCase(), true);
+    return;
+  }
+
   if (!window.currentLoadedSample) {
     statusEl.innerHTML = `<span style="color: var(--accent);"><i class="fas fa-exclamation-triangle"></i> Custom Sequence Detected.</span> Please enter a known 4-letter PDB code on the right to view its 3D structure.`;
     container.innerHTML = `<div style="display: flex; justify-content: center; align-items: center; height: 100%; color: var(--text-muted); text-align: center; padding: 2rem;">Tertiary structure prediction for custom sequences requires an AlphaFold server.</div>`;
     return;
   }
 
-  loadCustomPDB(SAMPLE_PDB_MAP[window.currentLoadedSample].toLowerCase());
+  loadCustomPDB(SAMPLE_PDB_MAP[window.currentLoadedSample].toLowerCase(), true);
 }
 
-function loadCustomPDB(pdbId) {
+async function searchRCSB(sequence) {
+  window.autoPdbId = null; // Reset
+  try {
+    const query = {
+      "query": {
+        "type": "terminal",
+        "service": "sequence",
+        "parameters": {
+          "evalue_cutoff": 0.1,
+          "identity_cutoff": 0.9, // 90% match to catch slight variations
+          "sequence_type": "protein",
+          "value": sequence
+        }
+      },
+      "return_type": "entry"
+    };
+
+    const res = await fetch('https://search.rcsb.org/rcsbsearch/v2/query', {
+      method: 'POST',
+      body: JSON.stringify(query)
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.result_set && data.result_set.length > 0) {
+        window.autoPdbId = data.result_set[0].identifier;
+        console.log(`[Auto-PDB] Found match: ${window.autoPdbId}`);
+        showToast(`<i class="fas fa-cube"></i> PDB Match Found: ${window.autoPdbId}`);
+        
+        // If the user is ALREADY on the 3D viewer tab, re-render it immediately!
+        if (document.getElementById('tab-3d-viewer').classList.contains('active')) {
+          render3DViewer();
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("RCSB Search failed:", err);
+  }
+}
+
+function loadCustomPDB(pdbId, isReRender=false) {
+  if (!isReRender) {
+      window.manualPdbId = pdbId;
+  }
   const container = document.getElementById('mol-viewer');
   const statusEl = document.getElementById('viewer-status');
   const expEl = document.getElementById('viewer-explanation');
 
-  statusEl.innerHTML = `Displaying experimental crystal structure (PDB ID: <a href="https://www.rcsb.org/structure/${pdbId}" target="_blank" style="color: var(--accent); text-decoration: none; font-weight: 600;">${pdbId.toUpperCase()}</a>). You can rotate and zoom using your mouse.`;
+  if (!window.autoPdbId) {
+      statusEl.innerHTML = `Displaying experimental crystal structure (PDB ID: <a href="https://www.rcsb.org/structure/${pdbId}" target="_blank" style="color: var(--accent); text-decoration: none; font-weight: 600;">${pdbId.toUpperCase()}</a>). You can rotate and zoom using your mouse.`;
+  }
   expEl.innerHTML = `<strong>Interactive 3D Viewer:</strong> The structure above is visually mapped to its secondary structure. <span style="color:#d95757;font-weight:bold;">Red represents Alpha Helices</span>, <span style="color:#578dd9;font-weight:bold;">Blue represents Beta Sheets</span>, and <span style="color:#57d98d;font-weight:bold;">Green represents flexible Random Coils</span>.`;
 
   const seqLen = currentResults && currentResults.sequence ? currentResults.sequence.length : 100;
