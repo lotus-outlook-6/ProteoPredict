@@ -1,0 +1,8 @@
+{
+  "name": "proteopredict-frontend",
+  "version": "1.0.0",
+  "description": "Protein structure prediction frontend",
+  "scripts": {
+    "dev": "npx serve ."
+  }
+}
