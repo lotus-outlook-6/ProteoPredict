@@ -61,7 +61,7 @@
    GLOBAL RESET & TYPOGRAPHY
    ============================================ */
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; scrollbar-gutter: stable; }
 
 body {
   font-family: var(--font-sans);
@@ -335,7 +335,10 @@ textarea::placeholder { color: var(--text-muted); }
 .loading-overlay {
   position: fixed; top: 0; left: 0; right: 0; bottom: 0;
   z-index: 1000; display: flex; justify-content: center; align-items: center;
-  background: transparent; pointer-events: none; opacity: 0;
+  background: rgba(0, 0, 0, 0.25); 
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  pointer-events: none; opacity: 0;
   transition: opacity 0.4s ease;
 }
 body.is-loading .loading-overlay { opacity: 1; pointer-events: all; }
@@ -729,3 +732,5 @@ body.is-loading .loading-overlay { opacity: 1; pointer-events: all; }
   transform: translateX(50px);
 }
 
+
+body.body-locked { overflow: hidden !important; pointer-events: none !important; user-select: none !important; }

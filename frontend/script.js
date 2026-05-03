@@ -167,6 +167,7 @@ function initThemeToggle() {
     // STEP 1: Blur the UI (1 second)
     appContent.classList.add('theme-blur');
     navbar.classList.add('theme-blur');
+    document.body.classList.add('body-locked');
 
     // STEP 2: After blur settles, slowly transition the theme (3 seconds)
     setTimeout(() => {
@@ -189,6 +190,7 @@ function initThemeToggle() {
     setTimeout(() => {
       appContent.classList.remove('theme-blur');
       navbar.classList.remove('theme-blur');
+      document.body.classList.remove('body-locked');
     }, 4000);
 
     // STEP 4: Clean up (at 5 seconds)
@@ -596,6 +598,16 @@ async function runPrediction() {
 
   clearError();
   setLoading(true);
+
+  // Allow browser to paint the loading animation
+  await new Promise(r => setTimeout(r, 50));
+
+  // Reset 3D viewer state for new analysis
+  window.autoPdbId = null;
+  window.manualPdbId = null;
+  viewerInstance = null;
+  const viewerContainer = document.getElementById('mol-viewer');
+  if (viewerContainer) viewerContainer.innerHTML = '';
 
   try {
     // Check TensorFlow.js is loaded
@@ -1278,8 +1290,10 @@ function setLoading(on) {
   // Toggle blur class on body instead of hiding input
   if (on) {
     document.body.classList.add('is-loading');
+    document.body.classList.add('body-locked');
   } else {
     document.body.classList.remove('is-loading');
+    document.body.classList.remove('body-locked');
   }
 }
 
