@@ -2,7 +2,85 @@
    ProteoPredict Pro — Main Application Logic
    ============================================ */
 
-const API_URL = 'http://127.0.0.1:5000';
+const GEMINI_API_KEY = "AIzaSyAf7g2Yas2RVcX2b7xI6m9F0jf_XlAA6wk";
+let genAI = null;
+let chatSession = null;
+
+window.addEventListener('error', function(e) {
+  const errEl = document.getElementById('error-msg');
+  if (errEl) {
+    errEl.textContent = 'JS Error: ' + e.message;
+    errEl.style.display = 'block';
+  }
+});
+
+window.addEventListener('unhandledrejection', function(e) {
+  const errEl = document.getElementById('error-msg');
+  if (errEl) {
+    errEl.textContent = 'Promise Error: ' + (e.reason ? e.reason.message || e.reason : 'Unknown');
+    errEl.style.display = 'block';
+  }
+});
+
+const AMINO_ACIDS = 'ACDEFGHIKLMNPQRSTVWY';
+const MAX_LEN = 1200;
+const SS_LABELS = ['H', 'E', 'C'];
+const AA_TO_IDX = {};
+for (let i=0; i<AMINO_ACIDS.length; i++) AA_TO_IDX[AMINO_ACIDS[i]] = i;
+
+const MW_TABLE = {
+    'A': 89.09, 'R': 174.20, 'N': 132.12, 'D': 133.10, 'C': 121.16,
+    'Q': 146.15, 'E': 147.13, 'G': 75.03, 'H': 155.16, 'I': 131.17,
+    'L': 131.17, 'K': 146.19, 'M': 149.21, 'F': 165.19, 'P': 115.13,
+    'S': 105.09, 'T': 119.12, 'W': 204.23, 'Y': 181.19, 'V': 117.15
+};
+
+let tfModel = null;
+async function loadTFModel() {
+    if (!tfModel) {
+        tfModel = await tf.loadLayersModel('model/model.json');
+    }
+    return tfModel;
+}
+
+function computeSequenceStats(seq, structureStr, solubilityList, disorderList) {
+    const length = seq.length;
+    const aaCounts = {};
+    for (let i = 0; i < AMINO_ACIDS.length; i++) aaCounts[AMINO_ACIDS[i]] = 0;
+    
+    let mwRaw = 0;
+    for (let i = 0; i < length; i++) {
+        const aa = seq[i];
+        if (aaCounts[aa] !== undefined) aaCounts[aa]++;
+        if (MW_TABLE[aa]) mwRaw += MW_TABLE[aa];
+    }
+    const mw = mwRaw - (length - 1) * 18.015;
+
+    let hCount = 0, eCount = 0, cCount = 0;
+    for (let i = 0; i < structureStr.length; i++) {
+        if (structureStr[i] === 'H') hCount++;
+        else if (structureStr[i] === 'E') eCount++;
+        else if (structureStr[i] === 'C') cCount++;
+    }
+
+    let sumSol = 0, sumDis = 0;
+    for (let i = 0; i < length; i++) {
+        sumSol += solubilityList[i];
+        sumDis += disorderList[i];
+    }
+
+    return {
+        length: length,
+        mw: Math.round(mw * 10) / 10,
+        helix_percent: length ? Math.round((hCount / length * 100) * 10) / 10 : 0,
+        sheet_percent: length ? Math.round((eCount / length * 100) * 10) / 10 : 0,
+        coil_percent: length ? Math.round((cCount / length * 100) * 10) / 10 : 0,
+        avg_solubility: length ? sumSol / length : 0,
+        avg_disorder: length ? sumDis / length : 0,
+        aa_counts: aaCounts
+    };
+}
+
 
 const SAMPLE_PROTEINS = {
   insulin: 'GIVEQCCTSICSLYQLENYCN',
@@ -17,14 +95,17 @@ let currentResults = null;
 // ============================================
 // INITIALIZATION
 // ============================================
-document.addEventListener('DOMContentLoaded', () => {
+function initApp() {
   initThemeToggle();
   initTabs();
   initCustomDropdowns();
   initEventListeners();
   initChat();
   initFavicon();
-});
+}
+
+// Initialize the app immediately since module scripts execute after DOM is ready
+initApp();
 
 // ============================================
 // FAVICON & BRANDING
@@ -144,10 +225,15 @@ function initTabs() {
         try { Plotly.Plots.resize(`${tab}-chart`); } catch (e) { }
       }
 
-      // Init 3D viewer if selected
+      // 3D VIEWER OPTIMIZATION: Handle loading and spin-stop
       if (tab === '3d-viewer') {
-        // Slightly delay to ensure container is fully rendered
-        setTimeout(render3DViewer, 100);
+        if (!viewerInstance) {
+          setTimeout(render3DViewer, 100);
+        } else {
+          viewerInstance.render();
+        }
+      } else if (viewerInstance) {
+        viewerInstance.spin(false); // STOP THE SPIN when leaving tab
       }
     });
   });
@@ -326,11 +412,9 @@ async function sendChatMessage() {
   
   if (!text || !currentResults) return;
   
-  // Add user message
   addChatMessage('user', text);
   input.value = '';
   
-  // Show typing indicator
   const indicator = document.getElementById('typing-indicator');
   indicator.style.display = 'flex';
   btn.disabled = true;
@@ -339,34 +423,45 @@ async function sendChatMessage() {
   const useGemini = modeToggle ? modeToggle.checked : true;
 
   try {
-    const res = await fetch(`${API_URL}/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: text,
-        sequence: currentResults.sequence,
-        stats: currentResults.stats,
-        use_gemini: useGemini
-      })
-    });
-    
-    const data = await res.json();
-    
-    // Add artificial delay for realism
+    let htmlResponse = "";
+    if (useGemini) {
+      // Lazy-init Gemini session if not already created
+      if (!chatSession && window._lastProteinContext) {
+        try {
+          if (!genAI) {
+            const module = await import("https://esm.run/@google/generative-ai");
+            genAI = new module.GoogleGenerativeAI(GEMINI_API_KEY);
+          }
+          const geminiModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash", systemInstruction: window._lastProteinContext });
+          chatSession = geminiModel.startChat();
+        } catch (initErr) {
+          console.warn('Gemini init failed:', initErr);
+          chatSession = null;
+        }
+      }
+
+      if (chatSession) {
+        const result = await chatSession.sendMessage(text);
+        const responseText = result.response.text();
+        htmlResponse = responseText.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+      } else {
+        htmlResponse = `<strong>(Local Mode)</strong> Gemini is not available right now. I can see this is a ${currentResults.stats.length}aa sequence. Check your connection and try again.`;
+      }
+    } else {
+      htmlResponse = `<strong>(Local Mode)</strong> I am running in offline mode. I can see this is a ${currentResults.stats.length}aa sequence. Switch to 'Gemini' mode for deeper biochemical insights!`;
+    }
+
     setTimeout(() => {
       indicator.style.display = 'none';
       btn.disabled = false;
-      
-      if (res.ok) {
-        addChatMessage('bot', data.response);
-      } else {
-        addChatMessage('bot', `<span class="error-text">Error: ${data.error}</span>`);
-      }
-    }, 1500); // 1.5s delay
+      addChatMessage('bot', htmlResponse);
+    }, 500);
+
   } catch (err) {
+    console.error("Chat Error:", err);
     indicator.style.display = 'none';
     btn.disabled = false;
-    addChatMessage('bot', `<span class="error-text">Failed to connect to AI assistant.</span>`);
+    addChatMessage('bot', `<span class="error-text">Failed to connect to AI assistant. Note: PDB Tool calling is not available in frontend-only mode.</span>`);
   }
 }
 
@@ -503,27 +598,74 @@ async function runPrediction() {
   setLoading(true);
 
   try {
-    const res = await fetch(`${API_URL}/predict`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sequence })
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      showError(data.error || 'Prediction failed.');
-      return;
+    // Check TensorFlow.js is loaded
+    if (typeof tf === 'undefined') {
+      throw new Error('TensorFlow.js not loaded. Check your internet connection and refresh.');
     }
+
+    const model = await loadTFModel();
+    
+    // One-hot encode
+    const encoded = new Float32Array(MAX_LEN * 20);
+    for (let i = 0; i < sequence.length; i++) {
+      const idx = AA_TO_IDX[sequence[i]];
+      if (idx !== undefined) encoded[i * 20 + idx] = 1.0;
+    }
+    const inputTensor = tf.tensor3d(encoded, [1, MAX_LEN, 20]);
+    
+    // Predict
+    const predictions = model.predict(inputTensor);
+    const structPred = await predictions[0].array();
+    const solPred = await predictions[1].array();
+    const disPred = await predictions[2].array();
+    
+    const seqLen = sequence.length;
+    
+    // Structure argmax
+    let structureStr = "";
+    for (let i = 0; i < seqLen; i++) {
+        const probs = structPred[0][i];
+        const maxIdx = probs.indexOf(Math.max(...probs));
+        structureStr += SS_LABELS[maxIdx];
+    }
+    
+    // Solubility & Disorder
+    const solubilityVals = solPred[0].slice(0, seqLen).map(v => Math.max(0, Math.min(1, Math.round(v[0] * 10000) / 10000)));
+    const disorderVals = disPred[0].slice(0, seqLen).map(v => Math.max(0, Math.min(1, Math.round(v[0] * 10000) / 10000)));
+
+    const stats = computeSequenceStats(sequence, structureStr, solubilityVals, disorderVals);
+
+    const data = {
+        sequence: sequence,
+        structure: structureStr,
+        solubility: solubilityVals,
+        disorder: disorderVals,
+        stats: stats
+    };
 
     currentResults = data;
     displayAllResults(data);
 
-    // Step 1: Auto-PDB Search (Run in background)
+    // Store protein context for Gemini (used later in AI Summary tab)
+    window._lastProteinContext = `You are ProteoPredict AI, an expert structural biology and bioinformatics assistant. Your ONLY purpose is to answer questions related to protein structures, amino acid sequences, solubility, disorder, mutations, and biochemistry. If the user asks about anything else, politely refuse. Be concise, professional, and use markdown formatting (like bolding) to make answers readable. Avoid lengthy paragraphs.
+
+Context for current protein:
+Sequence: ${sequence}
+Length: ${stats.length} aa
+Mol Weight: ${stats.mw} Da
+Helix: ${stats.helix_percent}%
+Sheet: ${stats.sheet_percent}%
+Coil: ${stats.coil_percent}%
+Solubility: ${stats.avg_solubility}
+Disorder: ${stats.avg_disorder}`;
+    chatSession = null; // Reset so Gemini re-inits with new context when user chats
+
+    // Auto-PDB Search (Run in background)
     searchRCSB(sequence);
   } catch (err) {
-    console.error('Fetch Error:', err);
-    showError(`Connection Error: Ensure backend is running at ${API_URL}`);
+    console.error('Inference Error:', err);
+    const msg = err && (err.message || err.toString()) ? (err.message || err.toString()) : 'Unknown error';
+    showError('Protein Model Error: ' + msg);
   } finally {
     setLoading(false);
   }
@@ -732,10 +874,12 @@ function loadCustomPDB(pdbId, isReRender=false) {
     // Start very slow spin on X-axis
     viewerInstance.spin("x", 0.3);
 
-    // Stop spin when user interacts with the canvas
+    // AUTO-OPTIMIZATION: Stop spin after 10 seconds or when user interacts
     const stopSpin = () => {
       if (viewerInstance) viewerInstance.spin(false);
     };
+    setTimeout(stopSpin, 10000); 
+    
     container.addEventListener('mousedown', stopSpin, { once: true });
     container.addEventListener('touchstart', stopSpin, { once: true });
 
@@ -1120,6 +1264,10 @@ function resetForm() {
   document.getElementById('results-section').style.display = 'none';
   document.getElementById('char-counter').textContent = '0 aa';
   clearError();
+  if (viewerInstance) {
+    viewerInstance.clear();
+    viewerInstance = null;
+  }
   currentResults = null;
 }
 

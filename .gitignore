@@ -1,0 +1,19 @@
+# Environment variables (API keys)
+.env
+
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# Node
+node_modules/
+
+# Firebase
+.firebase/
+
+# Debug and Test Scripts
+*.py
+*.js
+!frontend/script.js
+!functions/**/*.js

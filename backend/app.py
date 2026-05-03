@@ -5,10 +5,14 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import pickle
 import google.generativeai as genai
+from dotenv import load_dotenv
+
+# Load .env from project root
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env'))
 
 # Setup Gemini API
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyCDzldZdiA9PxWFSVquvCTn4dn2Voie_OI")
-if GEMINI_API_KEY != "YOUR_API_KEY_HERE":
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+if GEMINI_API_KEY and GEMINI_API_KEY != "YOUR_NEW_API_KEY_HERE":
     genai.configure(api_key=GEMINI_API_KEY)
 
 def search_rcsb_pdb(sequence: str) -> str:
@@ -262,8 +266,8 @@ def chat():
             response = f"<strong>(Local Mode)</strong> I am running in offline mode. I can see this is a {stats.get('length')}aa sequence. Switch to 'Gemini' mode for deeper biochemical insights!"
         return jsonify({'response': response})
 
-    if GEMINI_API_KEY == "YOUR_API_KEY_HERE":
-        return jsonify({'response': "<strong>Gemini API is not configured!</strong> Please enter your API key in `backend/app.py` on line 10."})
+    if not GEMINI_API_KEY or GEMINI_API_KEY == "YOUR_NEW_API_KEY_HERE":
+        return jsonify({'response': "<strong>Gemini API key not configured!</strong> Add your key to the <code>.env</code> file in the project root. Get one at <a href='https://aistudio.google.com/apikey' target='_blank'>aistudio.google.com/apikey</a>."})
 
     try:
         system_instruction = f"You are ProteoPredict AI, an expert structural biology and bioinformatics assistant. Your ONLY purpose is to answer questions related to protein structures, amino acid sequences, solubility, disorder, mutations, and biochemistry. If the user asks about anything else, politely refuse. Be concise, professional, and use markdown formatting (like bolding) to make answers readable. Avoid lengthy paragraphs.\n\nContext for current protein:\nSequence: {sequence}\nLength: {stats.get('length')} aa\nMol Weight: {stats.get('mw')} Da\nHelix: {stats.get('helix_percent')}%\nSheet: {stats.get('sheet_percent')}%\nCoil: {stats.get('coil_percent')}%\nSolubility: {stats.get('avg_solubility')}\nDisorder: {stats.get('avg_disorder')}"

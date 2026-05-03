@@ -1,0 +1,9 @@
+firebase-functions
+firebase-admin
+flask
+flask-cors
+numpy
+tensorflow-cpu
+google-generativeai
+
+python-dotenv
