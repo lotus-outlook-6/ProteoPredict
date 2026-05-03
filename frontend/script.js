@@ -38,7 +38,22 @@ const MW_TABLE = {
 let tfModel = null;
 async function loadTFModel() {
     if (!tfModel) {
-        tfModel = await tf.loadLayersModel('model/model.json');
+        try {
+            tfModel = await tf.loadLayersModel('model/model.json');
+            // WARMUP: Compile WebGL shaders in the background so the first analysis is instant
+            setTimeout(async () => {
+                try {
+                    const dummy = tf.zeros([1, MAX_LEN, 20]);
+                    const res = tfModel.predict(dummy);
+                    await Promise.all([res[0].data(), res[1].data(), res[2].data()]);
+                    res.forEach(t => t.dispose());
+                    dummy.dispose();
+                    console.log('TF.js Model successfully warmed up and ready!');
+                } catch(e) { console.warn('Warmup failed', e); }
+            }, 100);
+        } catch (e) {
+            console.error('Failed to load TF model:', e);
+        }
     }
     return tfModel;
 }
@@ -102,6 +117,7 @@ function initApp() {
   initEventListeners();
   initChat();
   initFavicon();
+  loadTFModel(); // Load and warmup model in background immediately
 }
 
 // Initialize the app immediately since module scripts execute after DOM is ready
@@ -625,25 +641,40 @@ async function runPrediction() {
     }
     const inputTensor = tf.tensor3d(encoded, [1, MAX_LEN, 20]);
     
+    // Yield to browser to ensure loading UI renders smoothly
+    await tf.nextFrame();
+
     // Predict
     const predictions = model.predict(inputTensor);
-    const structPred = await predictions[0].array();
-    const solPred = await predictions[1].array();
-    const disPred = await predictions[2].array();
+    const structPred = await predictions[0].data(); // Use flat TypedArray (100x faster than .array())
+    const solPred = await predictions[1].data();
+    const disPred = await predictions[2].data();
+    
+    // 💥 CRITICAL MEMORY MANAGEMENT: Destroy tensors to prevent WebGL memory leak & browser crash
+    inputTensor.dispose();
+    predictions.forEach(tensor => tensor.dispose());
     
     const seqLen = sequence.length;
     
     // Structure argmax
     let structureStr = "";
     for (let i = 0; i < seqLen; i++) {
-        const probs = structPred[0][i];
-        const maxIdx = probs.indexOf(Math.max(...probs));
+        const idx = i * 3;
+        const p1 = structPred[idx];
+        const p2 = structPred[idx+1];
+        const p3 = structPred[idx+2];
+        const maxVal = Math.max(p1, p2, p3);
+        const maxIdx = p1 === maxVal ? 0 : (p2 === maxVal ? 1 : 2);
         structureStr += SS_LABELS[maxIdx];
     }
     
     // Solubility & Disorder
-    const solubilityVals = solPred[0].slice(0, seqLen).map(v => Math.max(0, Math.min(1, Math.round(v[0] * 10000) / 10000)));
-    const disorderVals = disPred[0].slice(0, seqLen).map(v => Math.max(0, Math.min(1, Math.round(v[0] * 10000) / 10000)));
+    const solubilityVals = new Array(seqLen);
+    const disorderVals = new Array(seqLen);
+    for (let i = 0; i < seqLen; i++) {
+        solubilityVals[i] = Math.max(0, Math.min(1, Math.round(solPred[i] * 10000) / 10000));
+        disorderVals[i] = Math.max(0, Math.min(1, Math.round(disPred[i] * 10000) / 10000));
+    }
 
     const stats = computeSequenceStats(sequence, structureStr, solubilityVals, disorderVals);
 
