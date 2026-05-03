@@ -2,7 +2,7 @@
    ProteoPredict Pro — Main Application Logic
    ============================================ */
 
-const GEMINI_API_KEY = "AIzaSyAf7g2Yas2RVcX2b7xI6m9F0jf_XlAA6wk";
+// GEMINI_API_KEY is now loaded from config.js
 let genAI = null;
 let chatSession = null;
 

@@ -17,3 +17,6 @@ node_modules/
 *.js
 !frontend/script.js
 !functions/**/*.js
+
+# Ignore Config file
+frontend/config.js
