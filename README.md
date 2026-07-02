@@ -13,7 +13,7 @@
 
 ------
 
-## Overview-
+## Overview
 
 **ProteoPredict Pro** is a cutting-edge web application designed to democratize deep learning in bioinformatics. It provides researchers and students with a rich, interactive platform to predict protein secondary structures, evaluate solubility, map disordered regions, and chat contextually with a Gemini-powered AI Assistant—all happening **entirely within the browser**.
 
