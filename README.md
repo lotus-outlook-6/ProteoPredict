@@ -21,7 +21,7 @@ By porting a custom-trained **1D CNN + Bidirectional LSTM** model directly into 
 
 ## Project Report
 
-[Read the ProteoPredict Project Report](public/main.pdf)
+[Read the ProteoPredict Project Report](https://www.dropbox.com/scl/fi/dmrwwotd5p5efrxis8xgj/Mini-Project-Project-Report-ProteoPredict.pdf?rlkey=kfk50keq61kxv0so7cvhx6p0j&st=7ovqfwk7&dl=0)
 
 ---
 
