@@ -19,6 +19,10 @@
 
 By porting a custom-trained **1D CNN + Bidirectional LSTM** model directly into TensorFlow.js, ProteoPredict Pro eliminates the need for expensive backend GPU servers. It runs natively on the client device, ensuring privacy, speed, and zero latency.
 
+## Project Report
+
+[Read the ProteoPredict Project Report](public/main.pdf)
+
 ---
 
 ## Application Gallery
